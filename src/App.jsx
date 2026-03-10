@@ -404,6 +404,10 @@ export default function App() {
     const [newRoom, setNewRoom] = useState("");
     const [editFazit, setEditFazit] = useState(false);
     const [fazitTxt, setFazitTxt] = useState(p.fazit||"");
+    const [editInfo, setEditInfo] = useState(false);
+    const [infoForm, setInfoForm] = useState({ name:p.name||"", number:p.number||"", address:p.address||"", contact:p.contact||"", phone:p.phone||"" });
+    const [editRoomId, setEditRoomId] = useState(null);
+    const [editRoomName, setEditRoomName] = useState("");
     const pc = p.rooms?.reduce((s,r)=>s+(r.photos?.length||0),0)||0;
     const addRoom = () => {
       if (!newRoom.trim()) return;
@@ -414,12 +418,33 @@ export default function App() {
       <div>
         <Header title={p.name} sub={p.number||"Ohne Nr."} onBack={goBack}/>
         <div style={{ padding:"8px 20px 40px" }}>
-          <div style={{ ...S.card, cursor:"default" }}>
-            <div style={{ fontSize:"13px", color:t.txM, lineHeight:1.8 }}>
-              <div>📍 {p.address||"—"}</div><div>👤 {p.contact||"—"}</div>
-              <div>📞 {p.phone||"—"}</div><div>📅 {fmtDate(p.created)}</div>
+          {editInfo ? (
+            <div style={{ ...S.card, cursor:"default" }}>
+              <Field label="Projektbezeichnung *" value={infoForm.name} onChange={v=>setInfoForm(f=>({...f,name:v}))} placeholder="z.B. Villa Müller Renovierung"/>
+              <Field label="Projektnummer" value={infoForm.number} onChange={v=>setInfoForm(f=>({...f,number:v}))} placeholder="z.B. 2026-042"/>
+              <Field label="Adresse" value={infoForm.address} onChange={v=>setInfoForm(f=>({...f,address:v}))} placeholder="Straße, PLZ Ort"/>
+              <Field label="Ansprechpartner" value={infoForm.contact} onChange={v=>setInfoForm(f=>({...f,contact:v}))} placeholder="Name"/>
+              <Field label="Telefon / E-Mail" value={infoForm.phone} onChange={v=>setInfoForm(f=>({...f,phone:v}))} placeholder="Kontaktdaten" type="tel"/>
+              <div style={{ display:"flex", gap:"8px", marginTop:"12px" }}>
+                <button style={{...S.btnS,flex:1}} onClick={() => setEditInfo(false)}>Abbrechen</button>
+                <button style={{...S.btnP,flex:1}} onClick={() => {
+                  if (!infoForm.name.trim()) { showToast("Bitte Projektname eingeben!"); return; }
+                  updateProj(p.id, () => ({ ...infoForm }));
+                  setEditInfo(false); showToast("Projektdaten gespeichert!");
+                }}>{I.check} Speichern</button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div style={{ ...S.card, cursor:"default" }}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start" }}>
+                <div style={{ fontSize:"13px", color:t.txM, lineHeight:1.8 }}>
+                  <div>📍 {p.address||"—"}</div><div>👤 {p.contact||"—"}</div>
+                  <div>📞 {p.phone||"—"}</div><div>📅 {fmtDate(p.created)}</div>
+                </div>
+                <button style={S.btnI} onClick={() => { setInfoForm({ name:p.name||"", number:p.number||"", address:p.address||"", contact:p.contact||"", phone:p.phone||"" }); setEditInfo(true); }}>{I.edit}</button>
+              </div>
+            </div>
+          )}
           <div style={S.section}>Räume ({p.rooms?.length||0})</div>
           <div style={{ display:"flex", gap:"8px", marginBottom:"16px" }}>
             <input style={{...S.input,flex:1}} placeholder="Neuer Raum (z.B. Flur EG)" value={newRoom}
@@ -427,13 +452,30 @@ export default function App() {
             <button style={{...S.btnS,padding:"12px 14px"}} onClick={addRoom}>{I.plus}</button>
           </div>
           {(p.rooms||[]).map(r => (
-            <div key={r.id} style={S.card} onClick={() => goRoom(r.id)}>
+            <div key={r.id} style={S.card} onClick={() => editRoomId===r.id ? null : goRoom(r.id)}>
               <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between" }}>
-                <div style={{ display:"flex", alignItems:"center", gap:"10px" }}>
+                <div style={{ display:"flex", alignItems:"center", gap:"10px", flex:1 }}>
                   <div style={{ color:t.acc }}>{I.room}</div>
-                  <div><div style={{ fontWeight:600 }}>{r.name}</div><div style={{ fontSize:"12px", color:t.txM }}>{r.photos?.length||0} Fotos</div></div>
+                  {editRoomId===r.id ? (
+                    <input style={{...S.input,flex:1,marginBottom:0}} value={editRoomName}
+                      onChange={e=>setEditRoomName(e.target.value)}
+                      onKeyDown={e=>{ if(e.key==="Enter"&&editRoomName.trim()){ updateProj(p.id,pr=>({rooms:pr.rooms.map(x=>x.id===r.id?{...x,name:editRoomName.trim()}:x)})); setEditRoomId(null); showToast("Raum umbenannt!"); } if(e.key==="Escape") setEditRoomId(null); }}
+                      onClick={e=>e.stopPropagation()} autoFocus/>
+                  ) : (
+                    <div><div style={{ fontWeight:600 }}>{r.name}</div><div style={{ fontSize:"12px", color:t.txM }}>{r.photos?.length||0} Fotos</div></div>
+                  )}
                 </div>
-                <button style={S.btnI} onClick={e => { e.stopPropagation(); updateProj(p.id,pr=>({rooms:pr.rooms.filter(x=>x.id!==r.id)})); }}>{I.trash}</button>
+                {editRoomId===r.id ? (
+                  <div style={{ display:"flex", gap:"6px" }} onClick={e=>e.stopPropagation()}>
+                    <button style={S.btnI} onClick={() => setEditRoomId(null)}>✕</button>
+                    <button style={S.btnI} onClick={() => { if(editRoomName.trim()){ updateProj(p.id,pr=>({rooms:pr.rooms.map(x=>x.id===r.id?{...x,name:editRoomName.trim()}:x)})); setEditRoomId(null); showToast("Raum umbenannt!"); } }}>{I.check}</button>
+                  </div>
+                ) : (
+                  <div style={{ display:"flex", gap:"6px" }}>
+                    <button style={S.btnI} onClick={e => { e.stopPropagation(); setEditRoomName(r.name); setEditRoomId(r.id); }}>{I.edit}</button>
+                    <button style={S.btnI} onClick={e => { e.stopPropagation(); updateProj(p.id,pr=>({rooms:pr.rooms.filter(x=>x.id!==r.id)})); }}>{I.trash}</button>
+                  </div>
+                )}
               </div>
               {r.photos?.length > 0 && (
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:"6px", marginTop:"12px" }}>
