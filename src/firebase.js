@@ -3,12 +3,12 @@ import { getAuth } from 'firebase/auth';
 import { getFirestore, enableIndexedDbPersistence } from 'firebase/firestore';
 
 const firebaseConfig = {
-  apiKey: "AIzaSyDK-K1Qx9ZxBIA5lkztjilPWPWCkMZvgSg",
-  authDomain: "malerdoku.firebaseapp.com",
-  projectId: "malerdoku",
-  storageBucket: "malerdoku.firebasestorage.app",
-  messagingSenderId: "890530555857",
-  appId: "1:890530555857:web:cab35255c72edbfdec22f0",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 const app = initializeApp(firebaseConfig);
