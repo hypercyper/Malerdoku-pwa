@@ -1132,7 +1132,7 @@ export default function App() {
               {!room.photos?.length ? <div style={{margin:"0 16px 16px",fontSize:"13px",color:"#999",fontStyle:"italic"}}>Keine Fotos</div>
                 : room.photos.map(ph => (
                   <div key={ph.id} style={rs.photoRow}>
-                    {ph.data ? <img src={ph.data} alt="" style={{width:"160px",height:"120px",objectFit:"cover",borderRadius:"6px",flexShrink:0}}/> :
+                    {ph.data ? <img src={ph.data} alt="" style={{width:"200px",height:"auto",borderRadius:"6px",flexShrink:0}}/> :
                       <div style={{width:"60px",height:"45px",borderRadius:"6px",background:"#ddd",flexShrink:0}}/>}
                     <div style={{flex:1}}>
                       {ph.desc && <div style={{fontSize:"13px",color:"#444",whiteSpace:"pre-wrap",marginBottom:"4px"}}>{ph.desc}</div>}
