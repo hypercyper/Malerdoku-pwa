@@ -1024,6 +1024,12 @@ export default function App() {
         ]);
 
         const element = contentRef.current;
+
+        // Render at A4 width (794px ≈ 210mm @ 96dpi) to avoid mobile-stretch distortion
+        const prevStyle = element.style.cssText;
+        element.style.cssText += ';position:fixed;top:0;left:-9999px;width:794px;max-width:794px;';
+        await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
         const containerRect = element.getBoundingClientRect();
 
         // Measure all image positions (in DOM pixels, relative to container top)
@@ -1039,6 +1045,8 @@ export default function App() {
           logging: false,
           backgroundColor: "#ffffff",
         });
+
+        element.style.cssText = prevStyle;
 
         const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
         const pageW = pdf.internal.pageSize.getWidth();
