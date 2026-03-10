@@ -1144,8 +1144,9 @@ export default function App() {
           ))}
           {(p.rooms||[]).some(r => r.meas && (r.meas.length||r.meas.width||r.meas.height)) && (() => {
             const roomsWithMeas = (p.rooms||[]).filter(r => r.meas && (r.meas.length||r.meas.width||r.meas.height));
-            const totWand  = roomsWithMeas.reduce((s,r) => s + (2*(r.meas.length+r.meas.width))*r.meas.height, 0);
-            const totBoden = roomsWithMeas.reduce((s,r) => s + r.meas.length*r.meas.width, 0);
+            const totWand    = roomsWithMeas.reduce((s,r) => s + (2*(r.meas.length+r.meas.width))*r.meas.height, 0);
+            const totBoden   = roomsWithMeas.reduce((s,r) => s + r.meas.length*r.meas.width, 0);
+            const totUmfang  = roomsWithMeas.reduce((s,r) => s + 2*(r.meas.length+r.meas.width), 0);
             return (
               <>
                 <div style={rs.roomHdr}>Aufmaß</div>
@@ -1182,7 +1183,7 @@ export default function App() {
                         <td style={{padding:"7px 8px"}}>{totWand.toFixed(2)}</td>
                         <td style={{padding:"7px 8px"}}>{totBoden.toFixed(2)}</td>
                         <td style={{padding:"7px 8px"}}>{totBoden.toFixed(2)}</td>
-                        <td/>
+                        <td style={{padding:"7px 8px"}}>{totUmfang.toFixed(2)}</td>
                       </tr>
                     </tfoot>
                   </table>
