@@ -1,5 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
-import { loadProjects, saveProjects, compressImage } from './storage';
+import { compressImage } from './storage';
+import { auth, db } from './firebase';
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 
 // ─── Icons ───
 const I = {
@@ -17,6 +20,9 @@ const I = {
   undo: <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>,
   arrow: <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>,
   gallery: <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>,
+  ruler: <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M2 12h20M12 2v20M4.5 4.5l15 15" strokeLinecap="round"/><rect x="2" y="2" width="20" height="20" rx="2" strokeLinecap="round"/></svg>,
+  upload: <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" strokeLinecap="round"/><polyline points="17 8 12 3 7 8" strokeLinecap="round"/><line x1="12" y1="3" x2="12" y2="15" strokeLinecap="round"/></svg>,
+  ai: <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M12 1v4M12 19v4M4.22 4.22l2.83 2.83M16.95 16.95l2.83 2.83M1 12h4M19 12h4M4.22 19.78l2.83-2.83M16.95 7.05l2.83-2.83" strokeLinecap="round"/></svg>,
 };
 
 // ─── Theme ───
@@ -265,22 +271,46 @@ export default function App() {
   const [editingPhoto, setEditingPhoto] = useState(null);
   const [toast, setToast] = useState(null);
   const [loaded, setLoaded] = useState(false);
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
 
-  // Load from IndexedDB
-  useEffect(() => { loadProjects().then(p => { setProjects(p); setLoaded(true); }); }, []);
+  // Auth state
+  useEffect(() => {
+    return onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      setAuthLoading(false);
+    });
+  }, []);
 
-  // Save on every change
-  useEffect(() => { if (loaded) saveProjects(projects); }, [projects, loaded]);
+  // Firestore real-time listener (nur wenn eingeloggt)
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(collection(db, 'projects'), (snap) => {
+      const data = snap.docs.map(d => d.data());
+      setProjects(data);
+      setLoaded(true);
+    });
+    return unsub;
+  }, [user]);
 
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
   const proj = () => projects.find(p => p.id === projId);
-  const updateProj = (id, fn) => setProjects(prev => prev.map(p => p.id === id ? { ...p, ...fn(p) } : p));
+  const updateProj = (id, fn) => setProjects(prev => {
+    const updated = prev.map(p => {
+      if (p.id !== id) return p;
+      const next = { ...p, ...fn(p) };
+      setDoc(doc(db, 'projects', id), next);
+      return next;
+    });
+    return updated;
+  });
 
   const goDetail = (id) => { setProjId(id); setScreen("detail"); };
   const goRoom = (id) => { setRoomId(id); setScreen("room"); };
   const goBack = () => {
     if (screen === "room") { setRoomId(null); setScreen("detail"); }
     else if (screen === "report") setScreen("detail");
+    else if (screen === "aufmass") setScreen("detail");
     else { setProjId(null); setScreen("list"); }
   };
 
@@ -301,9 +331,12 @@ export default function App() {
       <div style={{ padding:"52px 20px 12px", display:"flex", justifyContent:"space-between", alignItems:"center" }}>
         <div>
           <div style={{ fontSize:"24px", fontWeight:700 }}><span style={{ color:t.acc }}>Maler</span>Doku</div>
-          <div style={{ fontSize:"12px", color:t.txM }}>{projects.length} Projekte</div>
+          <div style={{ fontSize:"12px", color:t.txM }}>{projects.length} Projekte · {user?.email}</div>
         </div>
-        <button style={{ ...S.btnP, width:"auto", padding:"12px 18px", fontSize:"14px" }} onClick={() => setScreen("create")}>{I.plus} Neu</button>
+        <div style={{ display:"flex", gap:"8px" }}>
+          <button style={{ ...S.btnS, padding:"10px 14px", fontSize:"13px" }} onClick={() => signOut(auth)}>Abmelden</button>
+          <button style={{ ...S.btnP, width:"auto", padding:"12px 18px", fontSize:"14px" }} onClick={() => setScreen("create")}>{I.plus} Neu</button>
+        </div>
       </div>
       <div style={{ padding:"8px 20px 100px" }}>
         {projects.length === 0 && (
@@ -344,7 +377,7 @@ export default function App() {
     const save = () => {
       if (!f.name.trim()) { showToast("Bitte Projektname eingeben!"); return; }
       const np = { id:uid(), ...f, rooms:[], fazit:"", created:new Date().toISOString() };
-      setProjects(prev => [...prev, np]);
+      setDoc(doc(db, 'projects', np.id), np);
       setProjId(np.id); setScreen("detail");
       showToast("Projekt erstellt!");
     };
@@ -429,9 +462,10 @@ export default function App() {
             </div>
           )}
           <div style={{...S.section,marginTop:"32px"}}>Aktionen</div>
+          <button style={{...S.btnS,width:"100%",justifyContent:"center",marginBottom:"12px"}} onClick={() => setScreen("aufmass")}>{I.ruler} Aufmaß erfassen</button>
           <button style={{...S.btnP,marginBottom:"12px"}} onClick={() => setScreen("report")}>{I.pdf} PDF-Bericht anzeigen</button>
           <button style={{...S.btnS,width:"100%",justifyContent:"center",color:t.err,borderColor:`${t.err}33`}}
-            onClick={() => { setProjects(prev=>prev.filter(x=>x.id!==p.id)); setScreen("list"); setProjId(null); }}>{I.trash} Projekt löschen</button>
+            onClick={() => { deleteDoc(doc(db, 'projects', p.id)); setScreen("list"); setProjId(null); }}>{I.trash} Projekt löschen</button>
         </div>
       </div>
     );
@@ -444,19 +478,31 @@ export default function App() {
     if (!p || !currentRoom) { setScreen("detail"); return null; }
     const [desc, setDesc] = useState("");
     const [tempPhoto, setTempPhoto] = useState(null);
+    const [dragOver, setDragOver] = useState(false);
     const cameraRef = useRef(null);
     const galleryRef = useRef(null);
 
-    const handleFile = async (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
+    const processFile = async (file) => {
+      if (!file || !file.type.startsWith("image/")) return;
       const reader = new FileReader();
       reader.onload = async (ev) => {
         const compressed = await compressImage(ev.target.result);
         setTempPhoto(compressed);
       };
       reader.readAsDataURL(file);
-      e.target.value = ''; // reset for same file
+    };
+
+    const handleFile = async (e) => {
+      const file = e.target.files?.[0];
+      await processFile(file);
+      e.target.value = '';
+    };
+
+    const handleDrop = async (e) => {
+      e.preventDefault();
+      setDragOver(false);
+      const file = e.dataTransfer.files?.[0];
+      await processFile(file);
     };
 
     const savePhoto = () => {
@@ -493,24 +539,50 @@ export default function App() {
               </div>
             </div>
           ) : (
-            <div style={{ display:"flex", gap:"8px", marginBottom:"20px" }}>
-              <button style={{
-                flex:1, ...S.btnP, padding:"18px 12px",
-                background:`linear-gradient(135deg,${t.acc}22,${t.accD}22)`,
-                color:t.acc, border:`2px dashed ${t.acc}55`, flexDirection:"column", gap:"4px",
-              }} onClick={() => cameraRef.current?.click()}>
-                {I.camera}
-                <span style={{ fontSize:"12px" }}>Kamera</span>
-              </button>
-              <button style={{
-                flex:1, ...S.btnP, padding:"18px 12px",
-                background:`linear-gradient(135deg,${t.sf2},${t.sf})`,
-                color:t.txM, border:`1px solid ${t.brd}`, flexDirection:"column", gap:"4px",
-              }} onClick={() => galleryRef.current?.click()}>
-                {I.gallery}
-                <span style={{ fontSize:"12px" }}>Galerie</span>
-              </button>
-            </div>
+            <>
+              <div style={{ display:"flex", gap:"8px", marginBottom:"10px" }}>
+                <button style={{
+                  flex:1, ...S.btnP, padding:"18px 12px",
+                  background:`linear-gradient(135deg,${t.acc}22,${t.accD}22)`,
+                  color:t.acc, border:`2px dashed ${t.acc}55`, flexDirection:"column", gap:"4px",
+                }} onClick={() => cameraRef.current?.click()}>
+                  {I.camera}
+                  <span style={{ fontSize:"12px" }}>Kamera</span>
+                </button>
+                <button style={{
+                  flex:1, ...S.btnP, padding:"18px 12px",
+                  background:`linear-gradient(135deg,${t.sf2},${t.sf})`,
+                  color:t.txM, border:`1px solid ${t.brd}`, flexDirection:"column", gap:"4px",
+                }} onClick={() => galleryRef.current?.click()}>
+                  {I.gallery}
+                  <span style={{ fontSize:"12px" }}>Galerie</span>
+                </button>
+              </div>
+              <div
+                onDragOver={e => { e.preventDefault(); setDragOver(true); }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => galleryRef.current?.click()}
+                style={{
+                  marginBottom:"20px", borderRadius:t.rs, padding:"24px 16px",
+                  border:`2px dashed ${dragOver ? t.acc : t.brd}`,
+                  background: dragOver ? `${t.acc}11` : t.sf2,
+                  display:"flex", flexDirection:"column", alignItems:"center", gap:"8px",
+                  cursor:"pointer", transition:"border-color 0.15s, background 0.15s",
+                  color: dragOver ? t.acc : t.txM,
+                }}
+              >
+                <svg width="32" height="32" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="1.5">
+                  <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4" strokeLinecap="round" strokeLinejoin="round"/>
+                  <polyline points="17 8 12 3 7 8" strokeLinecap="round" strokeLinejoin="round"/>
+                  <line x1="12" y1="3" x2="12" y2="15" strokeLinecap="round"/>
+                </svg>
+                <span style={{ fontSize:"13px", fontWeight:600 }}>
+                  {dragOver ? "Loslassen zum Hochladen" : "Bild hierher ziehen"}
+                </span>
+                <span style={{ fontSize:"11px", opacity:0.6 }}>oder klicken zum Auswählen</span>
+              </div>
+            </>
           )}
 
           <div style={S.section}>Fotos ({photos.length})</div>
@@ -575,11 +647,321 @@ export default function App() {
     );
   };
 
+  // ─── AUFMASS ───
+  const AufmassScreen = () => {
+    const p = proj();
+    if (!p) { setScreen("list"); return null; }
+
+    const [apiKey, setApiKey] = useState(() => localStorage.getItem("aufmass_api_key") || "");
+    const [showKey, setShowKey] = useState(!localStorage.getItem("aufmass_api_key"));
+    const [grundriss, setGrundriss] = useState(p.grundriss || null);
+    const grundrissRef = useRef(null);
+
+    const saveApiKey = (v) => {
+      setApiKey(v);
+      localStorage.setItem("aufmass_api_key", v);
+    };
+
+    const handleGrundrissUpload = async (e) => {
+      const file = e.target.files?.[0];
+      if (!file || !file.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        const compressed = await compressImage(ev.target.result);
+        setGrundriss(compressed);
+        updateProj(p.id, () => ({ grundriss: compressed }));
+      };
+      reader.readAsDataURL(file);
+      e.target.value = '';
+    };
+
+    const totalWand = (p.rooms || []).reduce((s, r) => {
+      const m = r.meas;
+      if (!m) return s;
+      return s + (2 * (m.length + m.width)) * m.height;
+    }, 0);
+    const totalBoden = (p.rooms || []).reduce((s, r) => {
+      const m = r.meas;
+      if (!m) return s;
+      return s + m.length * m.width;
+    }, 0);
+
+    return (
+      <div>
+        <Header title="Aufmaß" sub={p.name} onBack={goBack}/>
+        <div style={{ padding:"8px 20px 60px" }}>
+
+          {/* API Key */}
+          <div style={{ ...S.card, cursor:"default" }}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer" }} onClick={() => setShowKey(v => !v)}>
+              <span style={{ fontSize:"13px", fontWeight:600, color:t.txM }}>Claude API-Key (für KI-Auslesen)</span>
+              <span style={{ fontSize:"12px", color:t.acc }}>{showKey ? "▲ Einklappen" : "▼ Anzeigen"}</span>
+            </div>
+            {showKey && (
+              <div style={{ marginTop:"12px" }}>
+                <input
+                  style={{ ...S.input, fontFamily:"monospace", fontSize:"13px" }}
+                  type="password"
+                  placeholder="sk-ant-..."
+                  value={apiKey}
+                  onChange={e => saveApiKey(e.target.value)}
+                />
+                <div style={{ fontSize:"11px", color:t.txM, marginTop:"6px" }}>
+                  Key wird nur lokal im Browser gespeichert.
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Grundriss Upload */}
+          <div style={S.section}>Grundriss / Skizze</div>
+          <input ref={grundrissRef} type="file" accept="image/*" style={{ display:"none" }} onChange={handleGrundrissUpload}/>
+          {grundriss ? (
+            <div style={{ ...S.card, cursor:"default" }}>
+              <img src={grundriss} alt="Grundriss" style={{ width:"100%", borderRadius:t.rs, marginBottom:"10px" }}/>
+              <button style={{ ...S.btnS, width:"100%", justifyContent:"center", fontSize:"13px" }} onClick={() => grundrissRef.current?.click()}>
+                {I.upload} Andere Skizze hochladen
+              </button>
+            </div>
+          ) : (
+            <div style={{ ...S.card, cursor:"pointer", display:"flex", flexDirection:"column", alignItems:"center", gap:"10px", padding:"24px 16px", border:`2px dashed ${t.brd}` }} onClick={() => grundrissRef.current?.click()}>
+              {I.upload}
+              <span style={{ fontSize:"14px", color:t.txM }}>Grundriss oder Skizze hochladen</span>
+              <span style={{ fontSize:"11px", color:t.txM, opacity:0.7 }}>Wird für KI-Maßerkennung verwendet</span>
+            </div>
+          )}
+
+          {/* Room Measure Cards */}
+          <div style={S.section}>Räume ({p.rooms?.length || 0})</div>
+          {(p.rooms || []).length === 0 && (
+            <div style={{ textAlign:"center", padding:"30px 20px", color:t.txM, fontSize:"14px" }}>
+              Noch keine Räume im Projekt — zuerst Räume in der Detailansicht anlegen.
+            </div>
+          )}
+          {(p.rooms || []).map(room => (
+            <RoomMeasCard
+              key={room.id}
+              room={room}
+              projId={p.id}
+              grundriss={grundriss}
+              apiKey={apiKey}
+              updateProj={updateProj}
+              showToast={showToast}
+            />
+          ))}
+
+          {/* Total Summary */}
+          {(p.rooms || []).some(r => r.meas) && (
+            <>
+              <div style={S.section}>Gesamtflächen</div>
+              <div style={{ ...S.card, cursor:"default" }}>
+                <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"12px" }}>
+                  <SumBox label="Wandfläche gesamt" value={totalWand} unit="m²"/>
+                  <SumBox label="Bodenfläche gesamt" value={totalBoden} unit="m²"/>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const SumBox = ({ label, value, unit }) => (
+    <div style={{ background:t.sf2, borderRadius:t.rs, padding:"12px", textAlign:"center" }}>
+      <div style={{ fontSize:"22px", fontWeight:700, color:t.acc }}>{value.toFixed(1)}<span style={{ fontSize:"13px", color:t.txM }}> {unit}</span></div>
+      <div style={{ fontSize:"11px", color:t.txM, marginTop:"4px" }}>{label}</div>
+    </div>
+  );
+
+  const RoomMeasCard = ({ room, projId: pid, grundriss, apiKey, updateProj: updProj, showToast: toast2 }) => {
+    const meas = room.meas || { length: 0, width: 0, height: 0 };
+    // Use string state so typing doesn't trigger project save → no App re-render → no cursor jump
+    const [strs, setStrs] = useState({
+      length: meas.length > 0 ? String(meas.length) : "",
+      width:  meas.width  > 0 ? String(meas.width)  : "",
+      height: meas.height > 0 ? String(meas.height) : "",
+    });
+    const [loading, setLoading] = useState(false);
+
+    const nums = {
+      length: parseFloat(strs.length) || 0,
+      width:  parseFloat(strs.width)  || 0,
+      height: parseFloat(strs.height) || 0,
+    };
+
+    // Only save to project on blur — prevents re-render while typing
+    const saveNums = (next) => {
+      updProj(pid, pr => ({
+        rooms: pr.rooms.map(r => r.id === room.id ? { ...r, meas: next } : r)
+      }));
+    };
+
+    const wand = (2 * (nums.length + nums.width)) * nums.height;
+    const boden = nums.length * nums.width;
+    const umfang = 2 * (nums.length + nums.width);
+    const hasValues = nums.length > 0 || nums.width > 0 || nums.height > 0;
+
+    const runAI = async () => {
+      if (!grundriss || !apiKey) {
+        toast2(!grundriss ? "Bitte zuerst Grundriss hochladen!" : "Bitte API-Key eingeben!");
+        return;
+      }
+      setLoading(true);
+      try {
+        // Strip data URL prefix to get raw base64
+        const base64 = grundriss.replace(/^data:image\/[a-z]+;base64,/, "");
+        const mediaType = grundriss.startsWith("data:image/png") ? "image/png" : "image/jpeg";
+        const res = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
+          body: JSON.stringify({
+            model: "claude-haiku-4-5-20251001",
+            max_tokens: 300,
+            messages: [{
+              role: "user",
+              content: [
+                { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } },
+                { type: "text", text: `Lies die Maße für den Raum "${room.name}" aus diesem Grundriss. Antworte NUR mit JSON: {"length_m": number, "width_m": number, "height_m": number}. Unbekannte Werte = 0. Kein weiterer Text.` }
+              ]
+            }]
+          })
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err?.error?.message || `HTTP ${res.status}`);
+        }
+        const data = await res.json();
+        const text = data.content?.[0]?.text || "";
+        const match = text.match(/\{[\s\S]*\}/);
+        if (!match) throw new Error("Kein JSON in Antwort");
+        const parsed = JSON.parse(match[0]);
+        const next = {
+          length: parsed.length_m || 0,
+          width: parsed.width_m || 0,
+          height: parsed.height_m || 0,
+        };
+        setStrs({
+          length: next.length > 0 ? String(next.length) : "",
+          width:  next.width  > 0 ? String(next.width)  : "",
+          height: next.height > 0 ? String(next.height) : "",
+        });
+        saveNums(next);
+        toast2("Maße ausgelesen!");
+      } catch (e) {
+        toast2("KI-Fehler: " + e.message);
+      }
+      setLoading(false);
+    };
+
+    return (
+      <div style={{ ...S.card, cursor:"default" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:"12px" }}>
+          <div style={{ display:"flex", alignItems:"center", gap:"8px" }}>
+            <div style={{ color:t.acc }}>{I.room}</div>
+            <span style={{ fontWeight:700 }}>{room.name}</span>
+          </div>
+          <button
+            style={{ ...S.btnS, padding:"8px 12px", fontSize:"12px", opacity: loading ? 0.6 : 1 }}
+            onClick={runAI}
+            disabled={loading}
+          >
+            {loading ? "…" : <>{I.ai} KI auslesen</>}
+          </button>
+        </div>
+
+        {/* Input fields */}
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:"8px", marginBottom:"12px" }}>
+          {[
+            { key:"length", label:"Länge (m)" },
+            { key:"width",  label:"Breite (m)" },
+            { key:"height", label:"Höhe (m)" },
+          ].map(({ key, label }) => (
+            <div key={key}>
+              <label style={{ ...S.label, fontSize:"10px" }}>{label}</label>
+              <input
+                style={{ ...S.input, padding:"10px 10px", fontSize:"15px", textAlign:"center" }}
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                value={strs[key]}
+                placeholder="0"
+                onChange={e => setStrs(prev => ({ ...prev, [key]: e.target.value }))}
+                onBlur={() => saveNums({ ...nums, [key]: parseFloat(strs[key]) || 0 })}
+              />
+            </div>
+          ))}
+        </div>
+
+        {/* Calculated values */}
+        {hasValues && (
+          <div style={{ background:t.sf2, borderRadius:t.rs, padding:"10px 12px" }}>
+            <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:"8px" }}>
+              <CalcRow label="Wandfläche" value={wand} unit="m²"/>
+              <CalcRow label="Bodenfläche" value={boden} unit="m²"/>
+              <CalcRow label="Deckenfläche" value={boden} unit="m²"/>
+              <CalcRow label="Umfang" value={umfang} unit="m"/>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const CalcRow = ({ label, value, unit }) => (
+    <div>
+      <div style={{ fontSize:"10px", color:t.txM, textTransform:"uppercase", letterSpacing:"0.5px" }}>{label}</div>
+      <div style={{ fontSize:"16px", fontWeight:700, color:t.tx }}>{value.toFixed(2)} <span style={{ fontSize:"11px", color:t.txM }}>{unit}</span></div>
+    </div>
+  );
+
+  // ─── LOGIN ───
+  const LoginScreen = () => {
+    const [email, setEmail] = useState("");
+    const [pw, setPw] = useState("");
+    const [err, setErr] = useState("");
+    const [loading, setLoading] = useState(false);
+    const login = async () => {
+      if (!email || !pw) return;
+      setLoading(true); setErr("");
+      try {
+        await signInWithEmailAndPassword(auth, email, pw);
+      } catch (e) {
+        setErr("E-Mail oder Passwort falsch.");
+      }
+      setLoading(false);
+    };
+    return (
+      <div style={{ display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", minHeight:"100vh", padding:"32px 24px", background:t.bg }}>
+        <div style={{ marginBottom:"32px", textAlign:"center" }}>
+          <div style={{ fontSize:"32px", fontWeight:700 }}><span style={{ color:t.acc }}>Maler</span>Doku</div>
+          <div style={{ fontSize:"14px", color:t.txM, marginTop:"6px" }}>Bitte anmelden</div>
+        </div>
+        <div style={{ width:"100%", maxWidth:"360px" }}>
+          <Field label="E-Mail" value={email} onChange={setEmail} placeholder="name@firma.de" type="email"/>
+          <Field label="Passwort" value={pw} onChange={setPw} placeholder="••••••••" type="password"/>
+          {err && <div style={{ color:t.err, fontSize:"13px", marginBottom:"12px", textAlign:"center" }}>{err}</div>}
+          <button style={{ ...S.btnP, opacity: loading ? 0.6 : 1 }} onClick={login} disabled={loading}>
+            {loading ? "Anmelden…" : "Anmelden"}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // ─── REPORT ───
   const ReportScreen = () => {
     const p = proj();
     if (!p) { setScreen("list"); return null; }
     const totalPhotos = p.rooms?.reduce((s,r)=>s+(r.photos?.length||0),0)||0;
+    const contentRef = useRef(null);
+    const [exporting, setExporting] = useState(false);
     const rs = {
       page:{background:"#fff",color:"#222",minHeight:"100vh",lineHeight:1.6},
       bar:{position:"sticky",top:0,zIndex:100,display:"flex",gap:"8px",padding:"12px 16px",background:"#fff",borderBottom:"1px solid #eee"},
@@ -589,51 +971,195 @@ export default function App() {
       roomHdr:{background:"#E8A838",color:"#000",fontWeight:700,fontSize:"14px",padding:"8px 14px",margin:"20px 16px 10px",borderRadius:"6px"},
       photoRow:{display:"flex",gap:"12px",margin:"0 16px 10px",paddingBottom:"10px",borderBottom:"1px solid #eee",alignItems:"flex-start",pageBreakInside:"avoid"},
     };
+
+    const downloadPDF = async () => {
+      if (!contentRef.current || exporting) return;
+      setExporting(true);
+      try {
+        const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+          import("html2canvas"),
+          import("jspdf"),
+        ]);
+
+        const element = contentRef.current;
+        const containerRect = element.getBoundingClientRect();
+
+        // Measure all image positions (in DOM pixels, relative to container top)
+        const imgEls = element.querySelectorAll("img");
+        const imgRanges = Array.from(imgEls).map(el => {
+          const r = el.getBoundingClientRect();
+          return { top: r.top - containerRect.top, bottom: r.bottom - containerRect.top };
+        });
+
+        const canvas = await html2canvas(element, {
+          scale: 2,
+          useCORS: true,
+          logging: false,
+          backgroundColor: "#ffffff",
+        });
+
+        const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+        const pageW = pdf.internal.pageSize.getWidth();
+        const pageH = pdf.internal.pageSize.getHeight();
+        const margin = 10;
+        const printW = pageW - margin * 2;
+        const printH = pageH - margin * 2;
+
+        // Scale: canvas pixels per DOM pixel
+        const domToCanvas = canvas.width / containerRect.width;
+        // Page height expressed in canvas pixels
+        const pageHpx = printH * (canvas.width / printW);
+
+        // Convert image ranges to canvas pixels
+        const noBreak = imgRanges.map(r => ({
+          top: r.top * domToCanvas,
+          bottom: r.bottom * domToCanvas,
+        }));
+
+        // Build page slices, shifting breaks to avoid cutting images
+        const slices = [];
+        let y = 0;
+        while (y < canvas.height) {
+          let end = y + pageHpx;
+          if (end >= canvas.height) { slices.push([y, canvas.height]); break; }
+          for (const nb of noBreak) {
+            if (end > nb.top && end < nb.bottom) { end = nb.top; break; }
+          }
+          if (end <= y) end = y + pageHpx; // image taller than one page — no choice
+          slices.push([y, end]);
+          y = end;
+        }
+
+        // Render each slice onto its own PDF page
+        slices.forEach(([start, end], i) => {
+          if (i > 0) pdf.addPage();
+          const sliceH = end - start;
+          const tmp = document.createElement("canvas");
+          tmp.width = canvas.width;
+          tmp.height = sliceH;
+          tmp.getContext("2d").drawImage(canvas, 0, -start);
+          const printSliceH = sliceH * (printW / canvas.width);
+          pdf.addImage(tmp.toDataURL("image/jpeg", 0.92), "JPEG", margin, margin, printW, printSliceH);
+        });
+
+        pdf.save(`Kammerer_${p.name.replace(/\s+/g,"_")}_${new Date().toISOString().slice(0,10)}.pdf`);
+      } catch (err) {
+        showToast("PDF-Export fehlgeschlagen");
+        console.error(err);
+      }
+      setExporting(false);
+    };
+
     return (
       <div style={rs.page}>
         <div style={rs.bar} className="no-print">
           <button style={{...rs.barBtn,background:"#eee",color:"#333"}} onClick={goBack}>{I.back}</button>
           <div style={{flex:1}}/>
-          <button style={{...rs.barBtn,background:"#E8A838",color:"#000"}} onClick={() => window.print()}>{I.pdf} Drucken / PDF</button>
+          <button style={{...rs.barBtn,background:"#f0f0f0",color:"#333",marginRight:"4px"}} onClick={() => window.print()}>{I.pdf} Drucken</button>
+          <button style={{...rs.barBtn,background:"#E8A838",color:"#000",opacity:exporting?0.6:1}} onClick={downloadPDF} disabled={exporting}>
+            {exporting ? "…" : <>{I.pdf} PDF speichern</>}
+          </button>
         </div>
-        <div style={rs.header}>
-          <div style={{fontSize:"22px",fontWeight:700,color:"#000"}}>Baustellenbericht</div>
-          <div style={{fontSize:"12px",color:"#333",marginTop:"4px"}}>MalerDoku – {fmtDate(new Date().toISOString())}</div>
-        </div>
-        <div style={rs.infoBox}>
-          <div style={{fontSize:"18px",fontWeight:700,marginBottom:"8px"}}>{p.name}</div>
-          {p.number && <div style={{fontSize:"13px",color:"#555"}}>Projekt-Nr: {p.number}</div>}
-          {p.address && <div style={{fontSize:"13px",color:"#555"}}>Adresse: {p.address}</div>}
-          {p.contact && <div style={{fontSize:"13px",color:"#555"}}>Ansprechpartner: {p.contact}</div>}
-          {p.phone && <div style={{fontSize:"13px",color:"#555"}}>Kontakt: {p.phone}</div>}
-          <div style={{fontSize:"13px",color:"#555"}}>Erstellt: {fmtDate(p.created)}</div>
-        </div>
-        <div style={{margin:"0 16px 16px",fontSize:"13px",color:"#666",borderBottom:"1px solid #ddd",paddingBottom:"12px"}}>
-          {p.rooms?.length||0} Räume &bull; {totalPhotos} Fotos &bull; {p.fazit?"Abgeschlossen":"Offen"}
-        </div>
-        {(p.rooms||[]).map(room => (
-          <div key={room.id}>
-            <div style={rs.roomHdr}>{room.name}<span style={{float:"right",fontSize:"12px",fontWeight:400}}>{room.photos?.length||0} Fotos</span></div>
-            {!room.photos?.length ? <div style={{margin:"0 16px 16px",fontSize:"13px",color:"#999",fontStyle:"italic"}}>Keine Fotos</div>
-              : room.photos.map(ph => (
-                <div key={ph.id} style={rs.photoRow}>
-                  {ph.data ? <img src={ph.data} alt="" style={{width:"160px",height:"120px",objectFit:"cover",borderRadius:"6px",flexShrink:0}}/> :
-                    <div style={{width:"60px",height:"45px",borderRadius:"6px",background:"#ddd",flexShrink:0}}/>}
-                  <div style={{flex:1}}>
-                    {ph.desc && <div style={{fontSize:"13px",color:"#444",whiteSpace:"pre-wrap",marginBottom:"4px"}}>{ph.desc}</div>}
-                    <div style={{fontSize:"11px",color:"#aaa"}}>{fmtDate(ph.time)}</div>
-                  </div>
-                </div>
-              ))}
+        <div ref={contentRef}>
+          <div style={rs.header}>
+            <div style={{fontSize:"22px",fontWeight:700,color:"#000"}}>Baustellenbericht</div>
+            <div style={{fontSize:"12px",color:"#333",marginTop:"4px"}}>Kammerer GmbH & Co. KG – {fmtDate(new Date().toISOString())}</div>
           </div>
-        ))}
-        {p.fazit && (<><div style={rs.roomHdr}>Fazit</div><div style={{margin:"8px 16px 24px",fontSize:"13px",color:"#333",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{p.fazit}</div></>)}
-        <div style={{marginTop:"40px",padding:"16px 20px",borderTop:"1px solid #ddd",fontSize:"10px",color:"#bbb",display:"flex",justifyContent:"space-between"}}>
-          <span>MalerDoku – {p.name}</span><span>{fmtDate(new Date().toISOString())}</span>
+          <div style={rs.infoBox}>
+            <div style={{fontSize:"18px",fontWeight:700,marginBottom:"8px"}}>{p.name}</div>
+            {p.number && <div style={{fontSize:"13px",color:"#555"}}>Projekt-Nr: {p.number}</div>}
+            {p.address && <div style={{fontSize:"13px",color:"#555"}}>Adresse: {p.address}</div>}
+            {p.contact && <div style={{fontSize:"13px",color:"#555"}}>Ansprechpartner: {p.contact}</div>}
+            {p.phone && <div style={{fontSize:"13px",color:"#555"}}>Kontakt: {p.phone}</div>}
+            <div style={{fontSize:"13px",color:"#555"}}>Erstellt: {fmtDate(p.created)}</div>
+          </div>
+          <div style={{margin:"0 16px 16px",fontSize:"13px",color:"#666",borderBottom:"1px solid #ddd",paddingBottom:"12px"}}>
+            {p.rooms?.length||0} Räume &bull; {totalPhotos} Fotos &bull; {p.fazit?"Abgeschlossen":"Offen"}
+          </div>
+          {(p.rooms||[]).map(room => (
+            <div key={room.id}>
+              <div style={rs.roomHdr}>{room.name}<span style={{float:"right",fontSize:"12px",fontWeight:400}}>{room.photos?.length||0} Fotos</span></div>
+              {!room.photos?.length ? <div style={{margin:"0 16px 16px",fontSize:"13px",color:"#999",fontStyle:"italic"}}>Keine Fotos</div>
+                : room.photos.map(ph => (
+                  <div key={ph.id} style={rs.photoRow}>
+                    {ph.data ? <img src={ph.data} alt="" style={{width:"160px",height:"120px",objectFit:"cover",borderRadius:"6px",flexShrink:0}}/> :
+                      <div style={{width:"60px",height:"45px",borderRadius:"6px",background:"#ddd",flexShrink:0}}/>}
+                    <div style={{flex:1}}>
+                      {ph.desc && <div style={{fontSize:"13px",color:"#444",whiteSpace:"pre-wrap",marginBottom:"4px"}}>{ph.desc}</div>}
+                      <div style={{fontSize:"11px",color:"#aaa"}}>{fmtDate(ph.time)}</div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          ))}
+          {(p.rooms||[]).some(r => r.meas && (r.meas.length||r.meas.width||r.meas.height)) && (() => {
+            const roomsWithMeas = (p.rooms||[]).filter(r => r.meas && (r.meas.length||r.meas.width||r.meas.height));
+            const totWand  = roomsWithMeas.reduce((s,r) => s + (2*(r.meas.length+r.meas.width))*r.meas.height, 0);
+            const totBoden = roomsWithMeas.reduce((s,r) => s + r.meas.length*r.meas.width, 0);
+            return (
+              <>
+                <div style={rs.roomHdr}>Aufmaß</div>
+                <div style={{margin:"0 16px 16px"}}>
+                  <table style={{width:"100%",borderCollapse:"collapse",fontSize:"13px"}}>
+                    <thead>
+                      <tr style={{background:"#f5f5f5"}}>
+                        {["Raum","L (m)","B (m)","H (m)","Wand m²","Boden m²","Decke m²","Umfang m"].map(h => (
+                          <th key={h} style={{padding:"6px 8px",textAlign:"left",borderBottom:"1px solid #ddd",fontWeight:700,fontSize:"11px",color:"#555"}}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {roomsWithMeas.map(r => {
+                        const {length:l, width:w, height:h} = r.meas;
+                        return (
+                          <tr key={r.id} style={{borderBottom:"1px solid #eee"}}>
+                            <td style={{padding:"6px 8px",fontWeight:600}}>{r.name}</td>
+                            <td style={{padding:"6px 8px"}}>{l.toFixed(2)}</td>
+                            <td style={{padding:"6px 8px"}}>{w.toFixed(2)}</td>
+                            <td style={{padding:"6px 8px"}}>{h.toFixed(2)}</td>
+                            <td style={{padding:"6px 8px"}}>{((2*(l+w))*h).toFixed(2)}</td>
+                            <td style={{padding:"6px 8px"}}>{(l*w).toFixed(2)}</td>
+                            <td style={{padding:"6px 8px"}}>{(l*w).toFixed(2)}</td>
+                            <td style={{padding:"6px 8px"}}>{(2*(l+w)).toFixed(2)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{background:"#FFF8E8",fontWeight:700}}>
+                        <td style={{padding:"7px 8px",fontSize:"12px"}}>Gesamt</td>
+                        <td colSpan={3}/>
+                        <td style={{padding:"7px 8px"}}>{totWand.toFixed(2)}</td>
+                        <td style={{padding:"7px 8px"}}>{totBoden.toFixed(2)}</td>
+                        <td style={{padding:"7px 8px"}}>{totBoden.toFixed(2)}</td>
+                        <td/>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              </>
+            );
+          })()}
+          {p.fazit && (<><div style={rs.roomHdr}>Fazit</div><div style={{margin:"8px 16px 24px",fontSize:"13px",color:"#333",lineHeight:1.7,whiteSpace:"pre-wrap"}}>{p.fazit}</div></>)}
+          <div style={{marginTop:"40px",padding:"16px 20px",borderTop:"1px solid #ddd",fontSize:"10px",color:"#bbb",display:"flex",justifyContent:"space-between"}}>
+            <span>Kammerer GmbH & Co. KG – {p.name}</span><span>{fmtDate(new Date().toISOString())}</span>
+          </div>
         </div>
       </div>
     );
   };
+
+  if (authLoading) return (
+    <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:t.bg }}>
+      <div style={{ fontSize:"24px", fontWeight:700 }}><span style={{color:t.acc}}>Maler</span>Doku</div>
+    </div>
+  );
+
+  if (!user) return (
+    <div style={{ maxWidth:"480px", margin:"0 auto" }}>
+      <LoginScreen/>
+    </div>
+  );
 
   if (!loaded) return (
     <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:t.bg }}>
@@ -647,6 +1173,7 @@ export default function App() {
       {screen === "create" && <CreateScreen/>}
       {screen === "detail" && <DetailScreen/>}
       {screen === "room" && <RoomScreen/>}
+      {screen === "aufmass" && <AufmassScreen/>}
       {screen === "report" && <ReportScreen/>}
       {toast && (
         <div style={{ position:"fixed", bottom:"24px", left:"50%", transform:"translateX(-50%)", background:t.sf, color:t.tx, padding:"12px 24px", borderRadius:"30px", fontSize:"14px", fontWeight:600, boxShadow:"0 8px 32px rgba(0,0,0,0.5)", border:`1px solid ${t.brd}`, zIndex:500, whiteSpace:"nowrap" }}>{toast}</div>
