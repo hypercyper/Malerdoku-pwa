@@ -320,8 +320,26 @@ export default function TrocknungApp({ user, onBack }) {
     const [exporting, setExporting] = useState(false);
     const [strom, setStrom] = useState(p.stromverbrauch?.toString() || '');
     const [editStrom, setEditStrom] = useState(!p.stromverbrauch);
-    const [editMessung, setEditMessung] = useState(null); // { messungId, raumId, field, value }
+    const [editMessung, setEditMessung] = useState(null);
+    const [newRoomName, setNewRoomName] = useState('');
+    const [newRoomFlaechen, setNewRoomFlaechen] = useState(['wand', 'boden']);
+    const [newRoomTa, setNewRoomTa] = useState(['kondensierung']);
+    const [showAddRoom, setShowAddRoom] = useState(false);
     const pdfRef = useRef(null);
+
+    const addRoom = () => {
+      if (!newRoomName.trim()) return;
+      const newRoom = { id: uid(), name: newRoomName.trim(), flaechen: newRoomFlaechen, trocknungsart: newRoomTa, bezugswert: genBezugswert() };
+      saveProt({ ...p, rooms: [...(p.rooms || []), newRoom] });
+      setNewRoomName(''); setNewRoomFlaechen(['wand', 'boden']); setNewRoomTa(['kondensierung']); setShowAddRoom(false);
+      showToast('Raum hinzugefügt!');
+    };
+    const deleteRoom = (roomId) => {
+      saveProt({ ...p, rooms: p.rooms.filter(r => r.id !== roomId) });
+      showToast('Raum entfernt');
+    };
+    const toggleNewFl = (fl) => setNewRoomFlaechen(prev => prev.includes(fl) ? prev.filter(x => x !== fl) : [...prev, fl]);
+    const toggleNewTa = (ta) => setNewRoomTa(prev => prev.includes(ta) ? prev.filter(x => x !== ta) : [...prev, ta]);
 
     const last = p.messungen?.[p.messungen.length - 1];
     const allTrocken = p.rooms?.length > 0 && p.rooms.every(r =>
@@ -410,7 +428,11 @@ export default function TrocknungApp({ user, onBack }) {
           <div style={S.section}>Räume ({p.rooms?.length || 0})</div>
           {p.rooms?.map(r => (
             <div key={r.id} style={{ ...S.card }}>
-              <div style={{ fontWeight: 700 }}>{r.name}</div>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <div style={{ fontWeight: 700 }}>{r.name}</div>
+                <button style={{ ...S.btnS, padding: "4px 10px", fontSize: "12px", color: t.err, borderColor: `${t.err}33` }}
+                  onClick={() => deleteRoom(r.id)}>✕</button>
+              </div>
               <div style={{ fontSize: "12px", color: t.txM, marginTop: "4px" }}>
                 {r.flaechen?.map(f => FLAECHEN.find(x => x.id === f)?.label).join(', ')}
               </div>
@@ -419,6 +441,49 @@ export default function TrocknungApp({ user, onBack }) {
               </div>
             </div>
           ))}
+
+          {/* Raum hinzufügen */}
+          {!showAddRoom ? (
+            <button style={{ ...S.btnS, width: "100%", justifyContent: "center", marginBottom: "8px" }}
+              onClick={() => setShowAddRoom(true)}>+ Raum hinzufügen</button>
+          ) : (
+            <div style={{ ...S.card, marginBottom: "8px" }}>
+              <div style={{ fontWeight: 600, marginBottom: "12px" }}>Neuer Raum</div>
+              <input style={{ ...S.input, marginBottom: "12px" }} placeholder="Raumname..." value={newRoomName}
+                onChange={e => setNewRoomName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addRoom()} autoFocus />
+              <label style={S.label}>Flächen</label>
+              <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
+                {FLAECHEN.map(fl => (
+                  <button key={fl.id} onClick={() => toggleNewFl(fl.id)} style={{
+                    ...S.btnS, padding: "8px 14px", fontSize: "13px", flex: 1,
+                    background: newRoomFlaechen.includes(fl.id) ? `${t.acc}22` : 'transparent',
+                    borderColor: newRoomFlaechen.includes(fl.id) ? t.acc : t.brd,
+                    color: newRoomFlaechen.includes(fl.id) ? t.acc : t.txM, justifyContent: "center"
+                  }}>{newRoomFlaechen.includes(fl.id) ? '✓ ' : ''}{fl.label}</button>
+                ))}
+              </div>
+              <label style={S.label}>Trocknungsart</label>
+              <div style={{ display: "flex", flexDirection: "column", gap: "6px", marginBottom: "14px" }}>
+                {TROCKNUNGSARTEN.map(ta => (
+                  <button key={ta.id} onClick={() => toggleNewTa(ta.id)} style={{
+                    ...S.btnS, padding: "10px 14px", fontSize: "13px", justifyContent: "flex-start",
+                    background: newRoomTa.includes(ta.id) ? `${t.acc}22` : 'transparent',
+                    borderColor: newRoomTa.includes(ta.id) ? t.acc : t.brd,
+                    color: newRoomTa.includes(ta.id) ? t.tx : t.txM,
+                  }}>
+                    <span style={{ display:"inline-flex", alignItems:"center", justifyContent:"center", width:"18px", height:"18px", borderRadius:"4px", marginRight:"10px", flexShrink:0, border:`2px solid ${newRoomTa.includes(ta.id)?t.acc:t.brd}`, background:newRoomTa.includes(ta.id)?t.acc:"transparent", color:"#000", fontSize:"12px", fontWeight:700 }}>
+                      {newRoomTa.includes(ta.id) ? '✓' : ''}
+                    </span>
+                    {ta.label}
+                  </button>
+                ))}
+              </div>
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button style={{ ...S.btnS, flex: 1, justifyContent: "center" }} onClick={() => setShowAddRoom(false)}>Abbrechen</button>
+                <button style={{ ...S.btnP, flex: 1 }} onClick={addRoom}>Hinzufügen</button>
+              </div>
+            </div>
+          )}
 
           {/* Messungen */}
           <div style={S.section}>Messungen ({p.messungen?.length || 0})</div>
