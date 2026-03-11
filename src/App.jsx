@@ -288,6 +288,23 @@ export default function App() {
     if (!user) return;
     const unsub = onSnapshot(collection(db, 'projects'), (snap) => {
       const data = snap.docs.map(d => d.data());
+      // Migration: Alte Fotos mit data im Projektdokument in photos-Collection verschieben
+      snap.docs.forEach(d => {
+        const proj = d.data();
+        let needsStrip = false;
+        proj.rooms?.forEach(room => {
+          room.photos?.forEach(ph => {
+            if (ph.data) {
+              needsStrip = true;
+              setDoc(doc(db, 'photos', ph.id), { id: ph.id, projectId: proj.id, roomId: room.id, data: ph.data, desc: ph.desc || '', time: ph.time || '' });
+            }
+          });
+        });
+        if (needsStrip) {
+          const stripped = { ...proj, rooms: proj.rooms?.map(r => ({ ...r, photos: r.photos?.map(({ id, desc, time }) => ({ id, desc, time })) || [] })) || [] };
+          setDoc(doc(db, 'projects', proj.id), stripped);
+        }
+      });
       setProjects(data);
       setLoaded(true);
     });
