@@ -273,6 +273,7 @@ export default function App() {
   const [loaded, setLoaded] = useState(false);
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [photoStore, setPhotoStore] = useState({});
 
   // Auth state
   useEffect(() => {
@@ -293,13 +294,32 @@ export default function App() {
     return unsub;
   }, [user]);
 
+  // Foto-Daten separat laden (Firestore 1MB-Limit umgehen)
+  useEffect(() => {
+    if (!user) return;
+    const unsub = onSnapshot(collection(db, 'photos'), (snap) => {
+      const store = {};
+      snap.docs.forEach(d => { store[d.id] = d.data(); });
+      setPhotoStore(store);
+    });
+    return unsub;
+  }, [user]);
+
   const showToast = (msg) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
   const proj = () => projects.find(p => p.id === projId);
   const updateProj = (id, fn) => setProjects(prev => {
     const updated = prev.map(p => {
       if (p.id !== id) return p;
       const next = { ...p, ...fn(p) };
-      setDoc(doc(db, 'projects', id), next);
+      // Foto-Daten (base64) NICHT in Projektdokument speichern (1MB-Limit)
+      const forFirestore = {
+        ...next,
+        rooms: next.rooms?.map(r => ({
+          ...r,
+          photos: r.photos?.map(({ id, desc, time }) => ({ id, desc, time })) || []
+        })) || []
+      };
+      setDoc(doc(db, 'projects', id), forFirestore);
       return next;
     });
     return updated;
@@ -321,6 +341,8 @@ export default function App() {
         ? { ...rm, photos: rm.photos.map(ph => ph.id === editingPhoto.photoId ? { ...ph, data: newData } : ph) }
         : rm)
     }));
+    const existing = photoStore[editingPhoto.photoId];
+    if (existing) setDoc(doc(db, 'photos', editingPhoto.photoId), { ...existing, data: newData });
     setEditingPhoto(null);
     showToast("Bild gespeichert!");
   };
@@ -549,18 +571,30 @@ export default function App() {
 
     const savePhoto = () => {
       if (!tempPhoto && !desc.trim()) return;
+      const newPhoto = { id: uid(), data: tempPhoto || null, desc, time: new Date().toISOString() };
       updateProj(p.id, pr => ({
         rooms: pr.rooms.map(rm => rm.id===roomId
-          ? { ...rm, photos:[...(rm.photos||[]),{ id:uid(), data:tempPhoto||null, desc, time:new Date().toISOString() }] }
+          ? { ...rm, photos:[...(rm.photos||[]), newPhoto] }
           : rm)
       }));
+      if (newPhoto.data) {
+        setDoc(doc(db, 'photos', newPhoto.id), { id: newPhoto.id, projectId: p.id, roomId, data: newPhoto.data, desc: newPhoto.desc, time: newPhoto.time });
+      }
       setTempPhoto(null); setDesc("");
       showToast("Foto gespeichert!");
     };
 
-    const delPhoto = (pid) => updateProj(p.id, pr => ({ rooms:pr.rooms.map(rm=>rm.id===roomId?{...rm,photos:rm.photos.filter(x=>x.id!==pid)}:rm) }));
-    const updDesc = (pid,d) => updateProj(p.id, pr => ({ rooms:pr.rooms.map(rm=>rm.id===roomId?{...rm,photos:rm.photos.map(x=>x.id===pid?{...x,desc:d}:x)}:rm) }));
-    const photos = currentRoom?.photos || [];
+    const delPhoto = (pid) => {
+      updateProj(p.id, pr => ({ rooms:pr.rooms.map(rm=>rm.id===roomId?{...rm,photos:rm.photos.filter(x=>x.id!==pid)}:rm) }));
+      deleteDoc(doc(db, 'photos', pid));
+    };
+    const updDesc = (pid,d) => {
+      updateProj(p.id, pr => ({ rooms:pr.rooms.map(rm=>rm.id===roomId?{...rm,photos:rm.photos.map(x=>x.id===pid?{...x,desc:d}:x)}:rm) }));
+      const existing = photoStore[pid];
+      if (existing) setDoc(doc(db, 'photos', pid), { ...existing, desc: d });
+    };
+    // Foto-Daten aus photoStore einbinden (base64 nicht im Projektdokument)
+    const photos = (currentRoom?.photos || []).map(ph => ({ ...ph, data: photoStore[ph.id]?.data ?? ph.data }));
 
     return (
       <div>
