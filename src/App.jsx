@@ -1181,16 +1181,18 @@ export default function App() {
             <div key={room.id}>
               <div style={rs.roomHdr}>{room.name}<span style={{float:"right",fontSize:"12px",fontWeight:400}}>{room.photos?.length||0} Fotos</span></div>
               {!room.photos?.length ? <div style={{margin:"0 16px 16px",fontSize:"13px",color:"#999",fontStyle:"italic"}}>Keine Fotos</div>
-                : room.photos.map(ph => (
+                : room.photos.map(ph => {
+                  const photoData = photoStore[ph.id]?.data ?? ph.data;
+                  return (
                   <div key={ph.id} style={rs.photoRow}>
-                    {ph.data ? <img src={ph.data} alt="" style={{width:"200px",height:"auto",borderRadius:"6px",flexShrink:0}}/> :
+                    {photoData ? <img src={photoData} alt="" style={{width:"200px",height:"auto",borderRadius:"6px",flexShrink:0}}/> :
                       <div style={{width:"60px",height:"45px",borderRadius:"6px",background:"#ddd",flexShrink:0}}/>}
                     <div style={{flex:1}}>
                       {ph.desc && <div style={{fontSize:"13px",color:"#444",whiteSpace:"pre-wrap",marginBottom:"4px"}}>{ph.desc}</div>}
                       <div style={{fontSize:"11px",color:"#aaa"}}>{fmtDate(ph.time)}</div>
                     </div>
                   </div>
-                ))}
+                );})}
             </div>
           ))}
           {(p.rooms||[]).some(r => r.meas && (r.meas.length||r.meas.width||r.meas.height)) && (() => {
