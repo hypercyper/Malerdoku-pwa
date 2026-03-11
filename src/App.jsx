@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { compressImage } from './storage';
 import { auth, db } from './firebase';
+import TrocknungApp from './Trocknung';
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from 'firebase/auth';
 import { collection, doc, onSnapshot, setDoc, deleteDoc } from 'firebase/firestore';
 
@@ -405,6 +406,10 @@ export default function App() {
             </div>
           );
         })}
+        {/* Trocknungsprotokolle Button */}
+        <button style={{ ...S.btnS, width:"100%", justifyContent:"center", gap:"10px", padding:"16px", marginTop:"8px" }} onClick={() => setScreen("trocknung")}>
+          💧 Trocknungsprotokolle
+        </button>
       </div>
     </div>
   );
@@ -1270,6 +1275,12 @@ export default function App() {
   if (!loaded) return (
     <div style={{ display:"flex", alignItems:"center", justifyContent:"center", height:"100vh", background:t.bg }}>
       <div style={{ fontSize:"24px", fontWeight:700 }}><span style={{color:t.acc}}>Maler</span>Doku</div>
+    </div>
+  );
+
+  if (screen === "trocknung") return (
+    <div style={{ maxWidth:"480px", margin:"0 auto" }}>
+      <TrocknungApp user={user} onBack={() => setScreen("list")} />
     </div>
   );
 
