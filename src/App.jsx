@@ -518,11 +518,13 @@ export default function App() {
               </div>
               {r.photos?.length > 0 && (
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:"6px", marginTop:"12px" }}>
-                  {r.photos.slice(0,4).map((ph,i) => (
+                  {r.photos.slice(0,4).map((ph,i) => {
+                    const thumbData = photoStore[ph.id]?.data ?? ph.data;
+                    return (
                     <div key={i} style={{ aspectRatio:"1", borderRadius:t.rs, overflow:"hidden" }}>
-                      {ph.data ? <img src={ph.data} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/> : <div style={{ width:"100%", height:"100%", background:"#444" }}/>}
+                      {thumbData ? <img src={thumbData} alt="" style={{ width:"100%", height:"100%", objectFit:"cover" }}/> : <div style={{ width:"100%", height:"100%", background:"#444" }}/>}
                     </div>
-                  ))}
+                  );})}
                 </div>
               )}
             </div>
