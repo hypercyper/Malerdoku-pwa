@@ -325,21 +325,54 @@ export default function TrocknungApp({ user, onBack }) {
     const [newRoomFlaechen, setNewRoomFlaechen] = useState(['wand', 'boden']);
     const [newRoomTa, setNewRoomTa] = useState(['kondensierung']);
     const [showAddRoom, setShowAddRoom] = useState(false);
+    // Schritt 2: Werte für bestehende Messungen erfassen
+    const [addRoomStep, setAddRoomStep] = useState('config'); // 'config' | 'messungen'
+    const [newRoomId, setNewRoomId] = useState(null);
+    const [nachtraeglichFG, setNachtraeglichFG] = useState({}); // { messungId: feuchtegrad }
     const pdfRef = useRef(null);
 
-    const addRoom = () => {
+    const toggleNewFl = (fl) => setNewRoomFlaechen(prev => prev.includes(fl) ? prev.filter(x => x !== fl) : [...prev, fl]);
+    const toggleNewTa = (ta) => setNewRoomTa(prev => prev.includes(ta) ? prev.filter(x => x !== ta) : [...prev, ta]);
+
+    const weiterZuMessungen = () => {
       if (!newRoomName.trim()) return;
-      const newRoom = { id: uid(), name: newRoomName.trim(), flaechen: newRoomFlaechen, trocknungsart: newRoomTa, bezugswert: genBezugswert() };
-      saveProt({ ...p, rooms: [...(p.rooms || []), newRoom] });
-      setNewRoomName(''); setNewRoomFlaechen(['wand', 'boden']); setNewRoomTa(['kondensierung']); setShowAddRoom(false);
+      // Wenn keine Messungen vorhanden → direkt speichern
+      if (!p.messungen?.length) {
+        const newRoom = { id: uid(), name: newRoomName.trim(), flaechen: newRoomFlaechen, trocknungsart: newRoomTa, bezugswert: genBezugswert() };
+        saveProt({ ...p, rooms: [...(p.rooms || []), newRoom] });
+        setNewRoomName(''); setNewRoomFlaechen(['wand', 'boden']); setNewRoomTa(['kondensierung']); setShowAddRoom(false);
+        showToast('Raum hinzugefügt!');
+      } else {
+        // Schritt 2: Werte für bestehende Messungen abfragen
+        const id = uid();
+        setNewRoomId(id);
+        setNachtraeglichFG({});
+        setAddRoomStep('messungen');
+      }
+    };
+
+    const addRoomMitMessungen = () => {
+      const allSet = p.messungen.every(m => nachtraeglichFG[m.id]);
+      if (!allSet) { showToast('Bitte für alle Messungen einen Feuchtegrad wählen'); return; }
+      const newRoom = { id: newRoomId, name: newRoomName.trim(), flaechen: newRoomFlaechen, trocknungsart: newRoomTa, bezugswert: genBezugswert() };
+      const updatedMessungen = p.messungen.map(m => ({
+        ...m,
+        raumMessungen: [...(m.raumMessungen || []), {
+          raumId: newRoomId,
+          feuchtegrad: nachtraeglichFG[m.id],
+          messwerte: genMesswerte(nachtraeglichFG[m.id])
+        }]
+      }));
+      saveProt({ ...p, rooms: [...(p.rooms || []), newRoom], messungen: updatedMessungen });
+      setNewRoomName(''); setNewRoomFlaechen(['wand', 'boden']); setNewRoomTa(['kondensierung']);
+      setShowAddRoom(false); setAddRoomStep('config'); setNewRoomId(null);
       showToast('Raum hinzugefügt!');
     };
+
     const deleteRoom = (roomId) => {
       saveProt({ ...p, rooms: p.rooms.filter(r => r.id !== roomId) });
       showToast('Raum entfernt');
     };
-    const toggleNewFl = (fl) => setNewRoomFlaechen(prev => prev.includes(fl) ? prev.filter(x => x !== fl) : [...prev, fl]);
-    const toggleNewTa = (ta) => setNewRoomTa(prev => prev.includes(ta) ? prev.filter(x => x !== ta) : [...prev, ta]);
 
     const last = p.messungen?.[p.messungen.length - 1];
     const allTrocken = p.rooms?.length > 0 && p.rooms.every(r =>
@@ -445,12 +478,13 @@ export default function TrocknungApp({ user, onBack }) {
           {/* Raum hinzufügen */}
           {!showAddRoom ? (
             <button style={{ ...S.btnS, width: "100%", justifyContent: "center", marginBottom: "8px" }}
-              onClick={() => setShowAddRoom(true)}>+ Raum hinzufügen</button>
-          ) : (
+              onClick={() => { setShowAddRoom(true); setAddRoomStep('config'); }}>+ Raum hinzufügen</button>
+          ) : addRoomStep === 'config' ? (
             <div style={{ ...S.card, marginBottom: "8px" }}>
-              <div style={{ fontWeight: 600, marginBottom: "12px" }}>Neuer Raum</div>
+              <div style={{ fontWeight: 600, marginBottom: "4px" }}>Neuer Raum</div>
+              {p.messungen?.length > 0 && <div style={{ fontSize: "12px", color: t.txM, marginBottom: "12px" }}>Schritt 1 von 2 – Konfiguration</div>}
               <input style={{ ...S.input, marginBottom: "12px" }} placeholder="Raumname..." value={newRoomName}
-                onChange={e => setNewRoomName(e.target.value)} onKeyDown={e => e.key === 'Enter' && addRoom()} autoFocus />
+                onChange={e => setNewRoomName(e.target.value)} onKeyDown={e => e.key === 'Enter' && weiterZuMessungen()} autoFocus />
               <label style={S.label}>Flächen</label>
               <div style={{ display: "flex", gap: "8px", marginBottom: "12px" }}>
                 {FLAECHEN.map(fl => (
@@ -480,7 +514,35 @@ export default function TrocknungApp({ user, onBack }) {
               </div>
               <div style={{ display: "flex", gap: "8px" }}>
                 <button style={{ ...S.btnS, flex: 1, justifyContent: "center" }} onClick={() => setShowAddRoom(false)}>Abbrechen</button>
-                <button style={{ ...S.btnP, flex: 1 }} onClick={addRoom}>Hinzufügen</button>
+                <button style={{ ...S.btnP, flex: 1 }} onClick={weiterZuMessungen}>
+                  {p.messungen?.length > 0 ? 'Weiter →' : 'Hinzufügen'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ ...S.card, marginBottom: "8px" }}>
+              <div style={{ fontWeight: 600, marginBottom: "4px" }}>„{newRoomName}" – Nachträgliche Werte</div>
+              <div style={{ fontSize: "12px", color: t.txM, marginBottom: "16px" }}>Schritt 2 von 2 – Feuchtegrad für bestehende Messungen</div>
+              {p.messungen.map(m => (
+                <div key={m.id} style={{ borderBottom: `1px solid ${t.brd}`, paddingBottom: "12px", marginBottom: "12px" }}>
+                  <div style={{ fontWeight: 600, marginBottom: "8px", fontSize: "14px" }}>📅 {fmtDate(m.datum)}</div>
+                  <div style={{ display: "flex", gap: "8px" }}>
+                    {FEUCHTEGRADE.map(fg => (
+                      <button key={fg} onClick={() => setNachtraeglichFG(prev => ({ ...prev, [m.id]: fg }))} style={{
+                        flex: 1, padding: "12px 8px", borderRadius: t.rs,
+                        border: `2px solid ${nachtraeglichFG[m.id] === fg ? FEUCHTE_COLOR[fg] : t.brd}`,
+                        background: nachtraeglichFG[m.id] === fg ? `${FEUCHTE_COLOR[fg]}22` : t.sf2,
+                        color: nachtraeglichFG[m.id] === fg ? FEUCHTE_COLOR[fg] : t.txM,
+                        fontWeight: nachtraeglichFG[m.id] === fg ? 700 : 400, fontSize: "13px",
+                        cursor: "pointer", fontFamily: "inherit"
+                      }}>{fg}</button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <div style={{ display: "flex", gap: "8px" }}>
+                <button style={{ ...S.btnS, flex: 1, justifyContent: "center" }} onClick={() => setAddRoomStep('config')}>← Zurück</button>
+                <button style={{ ...S.btnP, flex: 1 }} onClick={addRoomMitMessungen}>✓ Raum hinzufügen</button>
               </div>
             </div>
           )}
